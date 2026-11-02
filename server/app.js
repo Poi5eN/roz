@@ -116,7 +116,15 @@ export function createApp(db, { now = () => Date.now(), publicDir = "public" } =
       db.exec("BEGIN");
       try { // all-or-nothing: points, streak and badges move together
         q("UPDATE attempts SET finished_ms=?, correct=? WHERE user_id=? AND day=?").run(now(), correct, u.id, day);
-        for (const l of lines) q("INSERT INTO ledger (user_id, day, kind, points) VALUES (?,?,?,?)").run(u.id, day, l.kind, l.points);
+        const lastRow = q("SELECT hash FROM ledger WHERE user_id=? ORDER BY id DESC LIMIT 1").get(u.id);
+        let prevHash = lastRow?.hash || "GENESIS";
+        for (const l of lines) {
+          q("INSERT INTO ledger (user_id, day, kind, points, prev_hash) VALUES (?,?,?,?,?)").run(u.id, day, l.kind, l.points, prevHash);
+          const rowId = Number(db.prepare("SELECT last_insert_rowid() id").get().id);
+          const rowHash = sha(`${prevHash}|${u.id}|${day}|${l.kind}|${l.points}|${rowId}`);
+          q("UPDATE ledger SET hash=? WHERE id=?").run(rowHash, rowId);
+          prevHash = rowHash;
+        }
         q("UPDATE users SET xp=?, streak=?, best_streak=MAX(best_streak,?), last_played=? WHERE id=?").run(xp, streak, streak, day, u.id);
         for (const b of earnedBadges({ finishedDays: finishedDays(u.id), streak, correct, xp }))
           q("INSERT OR IGNORE INTO badges (user_id, badge) VALUES (?,?)").run(u.id, b);
@@ -132,7 +140,19 @@ export function createApp(db, { now = () => Date.now(), publicDir = "public" } =
       return { weekStart: from, top: rows.slice(0, 20).map((r, i) => ({ rank: i + 1, nick: r.nick, pts: r.pts, me: r.id === u.id })),
         me: idx < 0 ? null : { rank: idx + 1, pts: rows[idx].pts } };
     },
-    "GET /api/ledger": (req) => ({ lines: q("SELECT day, kind, points FROM ledger WHERE user_id=? ORDER BY id DESC LIMIT 30").all(auth(req).id) })
+    "GET /api/ledger": (req) => ({ lines: q("SELECT day, kind, points, prev_hash, hash FROM ledger WHERE user_id=? ORDER BY id DESC LIMIT 30").all(auth(req).id) }),
+    "GET /api/ledger/verify": (req) => {
+      const u = auth(req);
+      const rows = q("SELECT id, user_id, day, kind, points, prev_hash, hash FROM ledger WHERE user_id=? ORDER BY id ASC").all(u.id);
+      let expectedPrev = "GENESIS";
+      for (const r of rows) {
+        if (r.prev_hash !== expectedPrev) return { ok: false, brokenAtId: r.id };
+        const expectedHash = sha(`${r.prev_hash}|${r.user_id}|${r.day}|${r.kind}|${r.points}|${r.id}`);
+        if (r.hash !== expectedHash) return { ok: false, brokenAtId: r.id };
+        expectedPrev = r.hash;
+      }
+      return { ok: true, count: rows.length };
+    }
   };
 
   const cache = new Map();

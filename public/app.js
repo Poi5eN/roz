@@ -252,8 +252,20 @@ const views = {
   },
 
   async points() {
-    const d = await api("/api/ledger");
-    app.innerHTML = `<h1>My points 🧾</h1><p class="muted">Every point you earned, and why.</p>
+    const [d, v] = await Promise.all([
+      api("/api/ledger"),
+      api("/api/ledger/verify").catch(() => ({ ok: false }))
+    ]);
+    app.innerHTML = `<h1>My points 🧾</h1>
+      <p class="muted">Every point you earned, and why.</p>
+      ${v.ok ? `
+        <div class="card center pop" style="background:color-mix(in srgb,var(--good) 12%,var(--card));border:1.5px solid var(--good);padding:14px">
+          <p style="margin:0;font-weight:700;color:var(--good)">🛡️ Verified: ${v.count} entries, none altered</p>
+          <p class="muted" style="margin:4px 0 0;font-size:13px">Your points are chained so nobody can quietly change them.</p>
+        </div>`
+        : `<div class="card center" style="background:color-mix(in srgb,var(--bad) 12%,var(--card));border:1.5px solid var(--bad);padding:14px">
+          <p style="margin:0;font-weight:700;color:var(--bad)">⚠️ Integrity Alert: Points chain broken at record #${v.brokenAtId}!</p>
+        </div>`}
       <div class="card">${d.lines.length ? `<table class="lb">${d.lines.map((l) => `<tr><td>${l.day}</td><td>${KIND[l.kind] || l.kind}</td><td>+${l.points}</td></tr>`).join("")}</table>` : "<p class='center muted'>Nothing yet. Play today’s game!</p>"}</div>`;
   }
 };

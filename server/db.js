@@ -23,9 +23,11 @@ export function openDb(path = process.env.DB_PATH || "./data/roz.db") {
     CREATE TABLE IF NOT EXISTS ledger (
       id INTEGER PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id),
       day TEXT NOT NULL, kind TEXT NOT NULL, points INTEGER NOT NULL,
+      prev_hash TEXT, hash TEXT,
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
     CREATE INDEX IF NOT EXISTS ledger_day ON ledger(day);
+    CREATE INDEX IF NOT EXISTS ledger_user ON ledger(user_id, id);
     CREATE TABLE IF NOT EXISTS badges (
       user_id INTEGER NOT NULL REFERENCES users(id), badge TEXT NOT NULL,
       earned_at TEXT NOT NULL DEFAULT (datetime('now')), PRIMARY KEY (user_id, badge)
@@ -44,5 +46,7 @@ export function openDb(path = process.env.DB_PATH || "./data/roz.db") {
     CREATE INDEX IF NOT EXISTS flags_user_day ON flags(user_id, day);
   `);
   try { db.exec("ALTER TABLE attempts ADD COLUMN q_served_ms INTEGER;"); } catch {}
+  try { db.exec("ALTER TABLE ledger ADD COLUMN prev_hash TEXT;"); } catch {}
+  try { db.exec("ALTER TABLE ledger ADD COLUMN hash TEXT;"); } catch {}
   return db;
 }

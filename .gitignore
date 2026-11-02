@@ -3,6 +3,7 @@ data/
 *.db
 .env
 .vercel
-docs/
 *PROMPT*.md
 *prompt*.md
+docs/*PROMPT*.md
+docs/*prompt*.md

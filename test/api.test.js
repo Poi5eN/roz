@@ -123,3 +123,24 @@ test("anti-abuse: max 5 new accounts per IP per day", async () => {
   assert.equal(otherIp.status, 200);
   env.close();
 });
+
+test("tamper-evident points ledger: valid chain verifies, manual point mutation breaks chain at that id", async () => {
+  const env = await boot();
+  const { token } = (await env.call("/api/join", { body: { nick: "LedgerUser" } })).data;
+  await playDay(env, token);
+
+  // Verification succeeds on genuine play
+  const v1 = (await env.call("/api/ledger/verify", { token })).data;
+  assert.equal(v1.ok, true);
+  assert.ok(v1.count > 0);
+
+  // Directly UPDATE a row's points in SQLite database
+  const firstRow = env.db.prepare("SELECT id FROM ledger LIMIT 1").get();
+  env.db.prepare("UPDATE ledger SET points = points + 50 WHERE id = ?").run(firstRow.id);
+
+  // Verification must now fail exactly at that id
+  const v2 = (await env.call("/api/ledger/verify", { token })).data;
+  assert.equal(v2.ok, false);
+  assert.equal(v2.brokenAtId, firstRow.id);
+  env.close();
+});
