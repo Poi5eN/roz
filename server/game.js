@@ -81,12 +81,20 @@ export function liveStreak(lastPlayed, today, stored) {
   return lastPlayed === today || lastPlayed === addDays(today, -1) ? stored : 0;
 }
 
+export function isSunday(day) {
+  return new Date(day + "T00:00:00Z").getUTCDay() === 0;
+}
+
 /** Points for one finished day, as separate ledger lines so users can see exactly why. */
-export function pointsFor(correct, streakAfter) {
+export function pointsFor(correct, streakAfter, day = null) {
   const lines = [{ kind: "correct", points: correct * POINTS.correct }, { kind: "complete", points: POINTS.complete }];
   if (correct === QUESTIONS_PER_DAY) lines.push({ kind: "perfect", points: POINTS.perfect });
   const bonus = Math.min(streakAfter - 1, POINTS.streakCap) * POINTS.streakPerDay;
   if (bonus > 0) lines.push({ kind: "streak", points: bonus });
+  if (day && isSunday(day)) {
+    const baseTotal = lines.reduce((s, l) => s + l.points, 0);
+    lines.push({ kind: "sunday", points: baseTotal });
+  }
   return lines;
 }
 

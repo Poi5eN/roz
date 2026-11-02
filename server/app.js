@@ -4,7 +4,7 @@ import { extname, join, normalize } from "node:path";
 import { gzipSync } from "node:zlib";
 import {
   BADGES, MIN_SECONDS_PER_QUESTION, QUESTIONS_PER_DAY, dailyQuestions, earnedBadges, istDay,
-  levelFor, liveStreak, nextStreak, pointsFor, publicView, weekStart, addDays
+  levelFor, liveStreak, nextStreak, pointsFor, publicView, weekStart, addDays, isSunday
 } from "./game.js";
 
 const sha = (s) => createHash("sha256").update(s).digest("hex");
@@ -37,7 +37,7 @@ export function createApp(db, { now = () => Date.now(), publicDir = "public" } =
     const played = new Set(q("SELECT day FROM attempts WHERE user_id=? AND finished_ms IS NOT NULL AND day>=?").all(u.id, days[0]).map((r) => r.day));
     return {
       nick: u.nick, xp: u.xp, ...levelFor(u.xp), bestStreak: u.best_streak,
-      streak: liveStreak(u.last_played, today, u.streak), today,
+      streak: liveStreak(u.last_played, today, u.streak), today, isSunday: isSunday(today),
       doneToday: !!(a && a.finished_ms), correctToday: a?.correct ?? null,
       week: days.map((d) => ({ day: d, played: played.has(d) })),
       badges: Object.entries(BADGES).map(([id, b]) => ({ id, ...b,
@@ -49,9 +49,17 @@ export function createApp(db, { now = () => Date.now(), publicDir = "public" } =
     "POST /api/join": (req, body) => {
       const nick = String(body.nick || "").trim().replace(/\s+/g, " ");
       if (!/^[A-Za-z0-9_ ]{3,16}$/.test(nick)) throw new HttpError(400, "Name: 3-16 letters or numbers.");
+      const ip = (req.headers["x-forwarded-for"] || "").split(",")[0].trim() || req.socket?.remoteAddress || "?";
+      const day = istDay(now());
+      const signups = q("SELECT COUNT(*) c FROM ip_signups WHERE ip=? AND day=?").get(ip, day).c;
+      if (signups >= 5) throw new HttpError(429, "Maximum account limit reached for this network today (max 5 accounts per day).");
       const token = randomBytes(24).toString("hex");
-      try { q("INSERT INTO users (nick, token_hash) VALUES (?, ?)").run(nick, sha(token)); }
-      catch { throw new HttpError(409, "That name is taken. Try another."); }
+      try {
+        q("INSERT INTO users (nick, token_hash) VALUES (?, ?)").run(nick, sha(token));
+        q("INSERT INTO ip_signups (ip, day) VALUES (?, ?)").run(ip, day);
+      } catch {
+        throw new HttpError(409, "That name is taken. Try another.");
+      }
       return { token };
     },
     "GET /api/me": (req) => me(auth(req)),
@@ -61,7 +69,11 @@ export function createApp(db, { now = () => Date.now(), publicDir = "public" } =
       const u = auth(req), day = istDay(now());
       let a = q("SELECT * FROM attempts WHERE user_id=? AND day=?").get(u.id, day);
       if (a?.finished_ms) return { done: true };
-      if (!a) q("INSERT INTO attempts (user_id, day, started_ms) VALUES (?,?,?)").run(u.id, day, now());
+      if (!a) {
+        q("INSERT INTO attempts (user_id, day, started_ms, q_served_ms) VALUES (?,?,?,?)").run(u.id, day, now(), now());
+      } else if (!a.q_served_ms) {
+        q("UPDATE attempts SET q_served_ms=? WHERE user_id=? AND day=?").run(now(), u.id, day);
+      }
       a = q("SELECT * FROM attempts WHERE user_id=? AND day=?").get(u.id, day);
       return { done: false, day, questions: publicView(dailyQuestions(day)), answered: JSON.parse(a.answers) };
     },
@@ -69,13 +81,15 @@ export function createApp(db, { now = () => Date.now(), publicDir = "public" } =
       const u = auth(req), day = istDay(now());
       const a = q("SELECT * FROM attempts WHERE user_id=? AND day=?").get(u.id, day);
       if (!a || a.finished_ms) throw new HttpError(409, "Start today's game first.");
+      const servedAt = a.q_served_ms || a.started_ms;
+      if (now() - servedAt < 400) throw new HttpError(429, "Answer submitted too fast (minimum 400 ms).");
       const question = dailyQuestions(day).find((x) => x.id === body.qid);
       if (!question || !question.options.some((o) => o.id === body.optionId)) throw new HttpError(400, "Bad answer.");
       const answers = JSON.parse(a.answers);
       if (answers[question.id]) throw new HttpError(409, "Already answered.");
       const correct = body.optionId === question.correctId;
       answers[question.id] = { optionId: body.optionId, correct };
-      q("UPDATE attempts SET answers=? WHERE user_id=? AND day=?").run(JSON.stringify(answers), u.id, day);
+      q("UPDATE attempts SET answers=?, q_served_ms=? WHERE user_id=? AND day=?").run(JSON.stringify(answers), now(), u.id, day);
       return { correct, correctId: question.correctId };
     },
     "POST /api/finish": (req) => {
@@ -85,11 +99,17 @@ export function createApp(db, { now = () => Date.now(), publicDir = "public" } =
       const answers = JSON.parse(a.answers);
       if (Object.keys(answers).length < QUESTIONS_PER_DAY) throw new HttpError(409, "Answer all questions first.");
       const secs = (now() - a.started_ms) / 1000;
-      if (secs < QUESTIONS_PER_DAY * MIN_SECONDS_PER_QUESTION) throw new HttpError(429, "That was too fast to be real. Try again tomorrow.");
+      if (secs < QUESTIONS_PER_DAY * MIN_SECONDS_PER_QUESTION) {
+        q("INSERT INTO flags (user_id, day, reason, detail) VALUES (?, ?, ?, ?)").run(
+          u.id, day, "too_fast_finish",
+          JSON.stringify({ secs, minSecs: QUESTIONS_PER_DAY * MIN_SECONDS_PER_QUESTION })
+        );
+        throw new HttpError(429, "That was too fast to be real. Try again tomorrow.");
+      }
 
       const correct = Object.values(answers).filter((x) => x.correct).length;
       const streak = nextStreak(u.last_played, day, u.streak);
-      const lines = pointsFor(correct, streak);
+      const lines = pointsFor(correct, streak, day);
       const total = lines.reduce((s, l) => s + l.points, 0);
       const xp = u.xp + total;
 

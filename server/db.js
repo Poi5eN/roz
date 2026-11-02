@@ -15,7 +15,7 @@ export function openDb(path = process.env.DB_PATH || "./data/roz.db") {
     );
     CREATE TABLE IF NOT EXISTS attempts (
       user_id INTEGER NOT NULL REFERENCES users(id), day TEXT NOT NULL,
-      started_ms INTEGER NOT NULL, finished_ms INTEGER,
+      started_ms INTEGER NOT NULL, q_served_ms INTEGER, finished_ms INTEGER,
       answers TEXT NOT NULL DEFAULT '{}', correct INTEGER,
       PRIMARY KEY (user_id, day)
     );
@@ -30,6 +30,19 @@ export function openDb(path = process.env.DB_PATH || "./data/roz.db") {
       user_id INTEGER NOT NULL REFERENCES users(id), badge TEXT NOT NULL,
       earned_at TEXT NOT NULL DEFAULT (datetime('now')), PRIMARY KEY (user_id, badge)
     );
+    -- Anti-abuse: per-IP signup caps and anomaly detection logging
+    CREATE TABLE IF NOT EXISTS ip_signups (
+      ip TEXT NOT NULL, day TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS ip_signups_day ON ip_signups(ip, day);
+    CREATE TABLE IF NOT EXISTS flags (
+      id INTEGER PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id),
+      day TEXT NOT NULL, reason TEXT NOT NULL, detail TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS flags_user_day ON flags(user_id, day);
   `);
+  try { db.exec("ALTER TABLE attempts ADD COLUMN q_served_ms INTEGER;"); } catch {}
   return db;
 }

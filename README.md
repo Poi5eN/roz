@@ -48,9 +48,12 @@ API: `POST /api/join`, `GET /api/me`, `GET /api/daily`, `POST /api/answer`, `POS
 
 1. **Server decides everything.** Answer keys never reach the browser; each answer is checked on the server; points come only from `/api/finish`.
 2. **One attempt per day**, same questions for everybody, so the leaderboard is fair.
-3. **Every point is explained.** An append-only ledger shows exactly why each point was given ("Right answers", "Streak bonus"...).
-4. **Too-fast finishes are rejected** (average under 1.5 s per question), plus a per-IP rate limit.
-5. **The day is the Indian day.** It rolls over at midnight IST.
+3. **Every point is explained.** An append-only ledger shows exactly why each point was given ("Right answers", "Streak bonus", "Sunday 2x bonus"...).
+4. **Too-fast finishes are rejected** (average under 1.5 s per question) and logged to a persistent `flags` table for anti-fraud review.
+5. **Too-fast individual answers are rejected** (minimum 400 ms reading/tapping threshold after the question is served).
+6. **Sybil protection on signups**: maximum 5 new accounts created per IP address per calendar day (IST).
+7. **The day is the Indian day.** It rolls over at midnight IST.
+8. **Sunday Double Points challenge.** Every Sunday (IST), points earned from daily play are doubled (2x) and itemised in the ledger.
 
 ## Built for low-end phones and weak data
 
