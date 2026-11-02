@@ -4,7 +4,8 @@ Ref: KL-7Q4
 
 A tiny daily game for people who are learning English on a budget Android phone. Each day there are **5 questions**: you *hear* a short sentence, then tap the picture that matches. You earn points, keep a streak, level up, collect badges and climb a weekly leaderboard.
 
-- Live: `<add your deployed URL here>`
+- Repo: [https://github.com/Poi5eN/roz](https://github.com/Poi5eN/roz)
+- Live Demo: [https://spry-squall-smo71fq.tmp.now](https://spry-squall-smo71fq.tmp.now)
 - Explainer: [EXPLAINER.md](EXPLAINER.md)
 - Built with AI help: see "Where I used AI" in the explainer.
 
@@ -13,11 +14,11 @@ A tiny daily game for people who are learning English on a budget Android phone.
 Needs **Node 22.13 or newer**. No `npm install` is needed: there are zero dependencies.
 
 ```bash
-git clone <repo-url> roz && cd roz
+git clone https://github.com/Poi5eN/roz.git && cd roz
 npm start            # http://localhost:3000
 ```
 
-Run the tests: `npm test` (10 tests: game rules + full API journey with a fake clock).
+Run the tests: `npm test` (14 tests: game rules, anti-abuse, Sunday twist + full API journey with a fake clock).
 Dev mode with auto-restart: `npm run dev`.
 
 | Env var | Default | Meaning |
@@ -25,10 +26,13 @@ Dev mode with auto-restart: `npm run dev`.
 | `PORT` | `3000` | HTTP port |
 | `DB_PATH` | `./data/roz.db` | SQLite file (created automatically) |
 
-## Deploy (free)
+## Deploy (Free Demo)
 
-`render.yaml` is included: connect the repo on Render, choose the free web service, deploy. Any host that runs Node 22 works (Railway, Fly, a VPS).
-Note: free tiers have an ephemeral disk, so the demo database may reset on redeploy. See "What I left out" in the explainer.
+Deploy easily to **Vercel** or **Render**:
+- **Vercel**: Import this GitHub repository (`https://github.com/Poi5eN/roz`) in your Vercel Dashboard. `vercel.json` and `api/index.js` are pre-configured to run Roz serverlessly with in-memory/temp SQLite.
+- **Render**: `render.yaml` is included: connect the repo on Render, choose the free web service, deploy. Any host that runs Node 22 works (Railway, Fly, a VPS).
+
+> **Note on free tiers**: Free hosting tiers (Render/Vercel) have an ephemeral disk/filesystem, so the demo database resets between re-deployments or cold starts. See "What I left out" in the explainer.
 
 ## How it works
 
