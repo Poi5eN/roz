@@ -7,7 +7,7 @@ Ref: KL-7Q4
 
 Roz is a small, resilient daily web app built for Indian language learners using budget Android phones over modest mobile data. Each day has a short 3-minute challenge: listen to spoken English, tap the matching picture, and practice speaking aloud with real-time pronunciation scoring. Learners earn points, maintain streaks, level up, collect badges, review forgotten words via spaced repetition, and climb a weekly leaderboard.
 
-- **Live Demo:** [https://spry-squall-smo71fq.tmp.now](https://spry-squall-smo71fq.tmp.now) *(optimized to open on a phone first)*
+- **Live Demo:** [https://temporary-spry-squall-smo71fq-85qvjvatt-anon-tau-sage.vercel.app/](https://temporary-spry-squall-smo71fq-85qvjvatt-anon-tau-sage.vercel.app/) *(Alternative preview link: [https://spry-squall-smo71fq.tmp.now](https://spry-squall-smo71fq.tmp.now))*
 - **GitHub Repo:** [https://github.com/Poi5eN/roz](https://github.com/Poi5eN/roz)
 - **Explainer Narrative:** [EXPLAINER.md](EXPLAINER.md)
 - **Demo Video Script (2:30):** [docs/DEMO_SCRIPT.md](docs/DEMO_SCRIPT.md)
