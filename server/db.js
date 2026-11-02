@@ -44,6 +44,16 @@ export function openDb(path = process.env.DB_PATH || "./data/roz.db") {
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
     CREATE INDEX IF NOT EXISTS flags_user_day ON flags(user_id, day);
+
+    -- Spaced Repetition (Leitner boxes) for personal vocabulary practice
+    CREATE TABLE IF NOT EXISTS word_stats (
+      user_id INTEGER NOT NULL REFERENCES users(id),
+      item_id TEXT NOT NULL,
+      box INTEGER NOT NULL DEFAULT 1,
+      due_day TEXT NOT NULL,
+      PRIMARY KEY (user_id, item_id)
+    );
+    CREATE INDEX IF NOT EXISTS word_stats_due ON word_stats(user_id, due_day);
   `);
   try { db.exec("ALTER TABLE attempts ADD COLUMN q_served_ms INTEGER;"); } catch {}
   try { db.exec("ALTER TABLE ledger ADD COLUMN prev_hash TEXT;"); } catch {}

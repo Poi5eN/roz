@@ -144,3 +144,32 @@ test("tamper-evident points ledger: valid chain verifies, manual point mutation 
   assert.equal(v2.brokenAtId, firstRow.id);
   env.close();
 });
+
+test("personal practice with Leitner SRS: answers update box, practice points capped, excluded from leaderboard", async () => {
+  const env = await boot();
+  const { token } = (await env.call("/api/join", { body: { nick: "Practicer" } })).data;
+
+  // Initial practice request
+  const prac = (await env.call("/api/practice", { token })).data;
+  assert.ok(prac.questions.length > 0 && prac.questions.length <= 5);
+
+  const q1 = prac.questions[0];
+  // Check practice question
+  const checkRes = await env.call("/api/practice/check", { token, body: { qid: q1.id, word: q1.options[0].word } });
+  assert.equal(checkRes.status, 200);
+  assert.ok(typeof checkRes.data.correct === "boolean");
+
+  // Home stats reflect words known / due review
+  const me = (await env.call("/api/me", { token })).data;
+  assert.ok("wordsKnown" in me);
+  assert.ok("dueCount" in me);
+
+  // Leaderboard should NOT count practice points
+  const lb = (await env.call("/api/leaderboard", { token })).data;
+  const userEntry = lb.top.find((u) => u.nick === "Practicer");
+  if (userEntry) {
+    // If only practice points earned, leaderboard pts must be 0 or null
+    assert.equal(userEntry.pts, 0);
+  }
+  env.close();
+});

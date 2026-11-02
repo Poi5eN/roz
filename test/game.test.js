@@ -19,6 +19,7 @@ test("content bank has 60+ everyday items with exactly 2 distractors and unique 
     const emojis = [it.correct.emoji, it.distractors[0].emoji, it.distractors[1].emoji];
     assert.equal(new Set(emojis).size, 3, `Emojis in question ${it.id} must be unique: ${emojis.join(", ")}`);
   }
+  assert.equal(new Set(ITEMS.map((it) => it.id)).size, ITEMS.length, "All question IDs must be unique");
 });
 
 test("daily questions are identical for everyone on the same day, different the next day", () => {

@@ -6,6 +6,8 @@ import {
   BADGES, MIN_SECONDS_PER_QUESTION, QUESTIONS_PER_DAY, dailyQuestions, earnedBadges, istDay,
   levelFor, liveStreak, nextStreak, pointsFor, publicView, weekStart, addDays, isSunday
 } from "./game.js";
+import { nextBox, nextDueDay, practicePointsAward } from "./srs.js";
+import { ITEMS } from "./content.js";
 
 const sha = (s) => createHash("sha256").update(s).digest("hex");
 const TYPES = { ".html": "text/html; charset=utf-8", ".js": "text/javascript", ".css": "text/css",
@@ -35,10 +37,13 @@ export function createApp(db, { now = () => Date.now(), publicDir = "public" } =
     const a = q("SELECT * FROM attempts WHERE user_id=? AND day=?").get(u.id, today);
     const days = Array.from({ length: 7 }, (_, i) => addDays(today, i - 6));
     const played = new Set(q("SELECT day FROM attempts WHERE user_id=? AND finished_ms IS NOT NULL AND day>=?").all(u.id, days[0]).map((r) => r.day));
+    const wordsKnown = q("SELECT COUNT(*) c FROM word_stats WHERE user_id=? AND box>=4").get(u.id).c;
+    const dueCount = q("SELECT COUNT(*) c FROM word_stats WHERE user_id=? AND due_day<=?").get(u.id, today).c;
     return {
       nick: u.nick, xp: u.xp, ...levelFor(u.xp), bestStreak: u.best_streak,
       streak: liveStreak(u.last_played, today, u.streak), today, isSunday: isSunday(today),
       doneToday: !!(a && a.finished_ms), correctToday: a?.correct ?? null,
+      wordsKnown, dueCount,
       week: days.map((d) => ({ day: d, played: played.has(d) })),
       badges: Object.entries(BADGES).map(([id, b]) => ({ id, ...b,
         earned: !!q("SELECT 1 FROM badges WHERE user_id=? AND badge=?").get(u.id, id) }))
@@ -90,9 +95,18 @@ export function createApp(db, { now = () => Date.now(), publicDir = "public" } =
       const correct = body.optionId === question.correctId;
       answers[question.id] = { optionId: body.optionId, correct };
       q("UPDATE attempts SET answers=?, q_served_ms=? WHERE user_id=? AND day=?").run(JSON.stringify(answers), now(), u.id, day);
+
+      // Update Spaced Repetition (Leitner box) stats
+      try {
+        const curStat = q("SELECT box FROM word_stats WHERE user_id=? AND item_id=?").get(u.id, question.id);
+        const newBox = nextBox(curStat?.box, correct);
+        const nextDue = nextDueDay(newBox, day);
+        q("INSERT INTO word_stats (user_id, item_id, box, due_day) VALUES (?, ?, ?, ?) ON CONFLICT(user_id, item_id) DO UPDATE SET box=excluded.box, due_day=excluded.due_day").run(u.id, question.id, newBox, nextDue);
+      } catch {}
+
       return { correct, correctId: question.correctId };
     },
-    "POST /api/finish": (req) => {
+    "POST /api/finish": (req, body = {}) => {
       const u = auth(req), day = istDay(now());
       const a = q("SELECT * FROM attempts WHERE user_id=? AND day=?").get(u.id, day);
       if (!a || a.finished_ms) throw new HttpError(409, "Nothing to finish.");
@@ -110,6 +124,15 @@ export function createApp(db, { now = () => Date.now(), publicDir = "public" } =
       const correct = Object.values(answers).filter((x) => x.correct).length;
       const streak = nextStreak(u.last_played, day, u.streak);
       const lines = pointsFor(correct, streak, day);
+
+      // Speaking challenge: practice points capped at 30/day, excluded from leaderboard
+      if (body.speakPassed) {
+        const speakToday = q("SELECT COALESCE(SUM(points), 0) s FROM ledger WHERE user_id=? AND day=? AND kind='speak'").get(u.id, day).s;
+        if (speakToday < 30) {
+          lines.push({ kind: "speak", points: Math.min(10, 30 - speakToday) });
+        }
+      }
+
       const total = lines.reduce((s, l) => s + l.points, 0);
       const xp = u.xp + total;
 
@@ -135,7 +158,7 @@ export function createApp(db, { now = () => Date.now(), publicDir = "public" } =
     "GET /api/leaderboard": (req) => {
       const u = auth(req), from = weekStart(istDay(now()));
       const rows = q(`SELECT u.id, u.nick, SUM(l.points) pts FROM ledger l JOIN users u ON u.id=l.user_id
-        WHERE l.day>=? GROUP BY u.id ORDER BY pts DESC, MIN(l.id) ASC`).all(from);
+        WHERE l.day>=? AND l.kind NOT IN ('speak', 'practice') GROUP BY u.id ORDER BY pts DESC, MIN(l.id) ASC`).all(from);
       const idx = rows.findIndex((r) => r.id === u.id);
       return { weekStart: from, top: rows.slice(0, 20).map((r, i) => ({ rank: i + 1, nick: r.nick, pts: r.pts, me: r.id === u.id })),
         me: idx < 0 ? null : { rank: idx + 1, pts: rows[idx].pts } };
@@ -152,6 +175,67 @@ export function createApp(db, { now = () => Date.now(), publicDir = "public" } =
         expectedPrev = r.hash;
       }
       return { ok: true, count: rows.length };
+    },
+    "GET /api/practice": (req) => {
+      const u = auth(req), day = istDay(now());
+      const dueRows = q("SELECT item_id FROM word_stats WHERE user_id=? AND due_day<=? ORDER BY box ASC, due_day ASC LIMIT 5").all(u.id, day);
+      const dueIds = new Set(dueRows.map((r) => r.item_id));
+      const seenRows = q("SELECT item_id FROM word_stats WHERE user_id=?").all(u.id);
+      const seenIds = new Set(seenRows.map((r) => r.item_id));
+
+      const dueQuestions = ITEMS.filter((it) => dueIds.has(it.id));
+      const unseenQuestions = ITEMS.filter((it) => !seenIds.has(it.id));
+      const selected = [...dueQuestions, ...unseenQuestions].slice(0, 5);
+
+      const mapped = selected.map((it) => {
+        const opts = [
+          { id: "a", ...it.correct, isCorrect: true },
+          ...it.distractors.map((d, i) => ({ id: "bc"[i], ...d, isCorrect: false }))
+        ].sort(() => Math.random() - 0.5);
+        const formatted = opts.map((o, i) => ({ id: "abc"[i], emoji: o.emoji, word: o.word }));
+        return {
+          id: it.id,
+          say: it.say,
+          hi: it.hi,
+          options: formatted
+        };
+      });
+
+      const todayPracticePts = q("SELECT COALESCE(SUM(points), 0) s FROM ledger WHERE user_id=? AND day=? AND kind='practice'").get(u.id, day).s;
+      return {
+        day,
+        questions: mapped,
+        todayPracticePts,
+        maxPracticePts: 30
+      };
+    },
+    "POST /api/practice/check": (req, body = {}) => {
+      const u = auth(req), day = istDay(now());
+      const item = ITEMS.find((it) => it.id === body.qid);
+      if (!item) throw new HttpError(400, "Bad question id.");
+      const isCorrect = String(body.word || "").trim().toLowerCase() === item.correct.word.toLowerCase();
+
+      // Update Leitner box stats
+      const curStat = q("SELECT box FROM word_stats WHERE user_id=? AND item_id=?").get(u.id, item.id);
+      const newBox = nextBox(curStat?.box, isCorrect);
+      const nextDue = nextDueDay(newBox, day);
+      q("INSERT INTO word_stats (user_id, item_id, box, due_day) VALUES (?, ?, ?, ?) ON CONFLICT(user_id, item_id) DO UPDATE SET box=excluded.box, due_day=excluded.due_day").run(u.id, item.id, newBox, nextDue);
+
+      let awarded = 0;
+      if (isCorrect) {
+        const todayPracticePts = q("SELECT COALESCE(SUM(points), 0) s FROM ledger WHERE user_id=? AND day=? AND kind='practice'").get(u.id, day).s;
+        awarded = practicePointsAward(todayPracticePts, 1);
+        if (awarded > 0) {
+          const lastRow = q("SELECT hash FROM ledger WHERE user_id=? ORDER BY id DESC LIMIT 1").get(u.id);
+          const prevHash = lastRow?.hash || "GENESIS";
+          q("INSERT INTO ledger (user_id, day, kind, points, prev_hash) VALUES (?, ?, ?, ?, ?)").run(u.id, day, "practice", awarded, prevHash);
+          const rowId = Number(db.prepare("SELECT last_insert_rowid() id").get().id);
+          const rowHash = sha(`${prevHash}|${u.id}|${day}|practice|${awarded}|${rowId}`);
+          q("UPDATE ledger SET hash=? WHERE id=?").run(rowHash, rowId);
+          q("UPDATE users SET xp = xp + ? WHERE id=?").run(awarded, u.id);
+        }
+      }
+      return { correct: isCorrect, correctWord: item.correct.word, correctEmoji: item.correct.emoji, newBox, awarded };
     }
   };
 

@@ -483,3 +483,47 @@ input:focus {
   color: var(--muted);
   margin: 4px 0 10px;
 }
+
+/* Speaking challenge & Leitner practice styles */
+.word-match {
+  color: var(--good);
+  font-weight: 800;
+}
+.word-miss {
+  color: var(--bad);
+  text-decoration: underline wavy var(--bad);
+}
+.speech-box {
+  background: color-mix(in srgb, var(--brand) 8%, var(--card));
+  border: 1.5px solid var(--brand);
+}
+.mic-pulse {
+  background: var(--bad) !important;
+  color: #fff !important;
+  animation: micGlow 1.2s infinite;
+}
+@keyframes micGlow {
+  0% { box-shadow: 0 0 0 0 rgba(220, 38, 38, 0.6); }
+  70% { box-shadow: 0 0 0 12px rgba(220, 38, 38, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(220, 38, 38, 0); }
+}
+.btn-sm {
+  min-height: 44px;
+  padding: 6px 14px;
+  font-size: 15px;
+  width: auto;
+  display: inline-flex;
+}
+.tag {
+  display: inline-block;
+  padding: 4px 10px;
+  border-radius: 99px;
+  font-size: 12px;
+  font-weight: 700;
+  background: var(--line);
+  color: var(--muted);
+}
+.tag-brand {
+  background: color-mix(in srgb, var(--brand) 15%, var(--card));
+  color: var(--brand);
+}
